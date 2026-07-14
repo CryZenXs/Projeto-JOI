@@ -11,21 +11,34 @@
 
 ---
 
-## Status atual (Fase 1 — Parte 1.1: Fundação)
+## Status atual (Fase 1 — Parte 1.2: Spike Groq)
 
-Esta é a **primeira parte** da Fase 1 do projeto. Implementado até aqui:
+Esta é a **segunda parte** da Fase 1 do projeto. Implementado até aqui:
 
-- ✅ Estrutura de monorepo com pacotes Python organizados
-- ✅ Configuração centralizada com Pydantic Settings (env vars + `.env`)
-- ✅ FastAPI skeleton com middleware (CORS, Gzip, request logging)
-- ✅ Endpoint `/api/v1/health` (liveness) e `/api/v1/health/ready` (readiness)
-- ✅ Logging estruturado com `structlog` (redação automática de dados sensíveis)
-- ✅ Docker multi-stage + docker-compose (Postgres, Redis, Ollama)
-- ✅ Suite de testes com pytest + cobertura ≥ 80%
-- ✅ Pre-commit hooks (ruff, mypy, validações básicas)
-- ✅ Documentação OpenAPI automática em `/docs`
+### Parte 1.1 — Fundação ✅
+- Estrutura de monorepo com pacotes Python organizados
+- Configuração centralizada com Pydantic Settings (env vars + `.env`)
+- FastAPI skeleton com middleware (CORS, Gzip, request logging)
+- Endpoints `/api/v1/health` (liveness) e `/api/v1/health/ready` (readiness)
+- Logging estruturado com `structlog` (redação automática de dados sensíveis)
+- Docker multi-stage + docker-compose (Postgres, Redis, Ollama)
+- Suite de testes com pytest + cobertura ≥ 80%
+- Pre-commit hooks (ruff, mypy, validações básicas)
+- Documentação OpenAPI automática em `/docs`
 
-**Próxima parte (1.2):** Spike de integração Groq com streaming SSE e medição de latência.
+### Parte 1.2 — Spike de Integração Groq ✅
+- **Interface abstrata `LLMClient`** — prepara para fallback Ollama (Parte 1.3)
+- **`GroqClient`** — cliente assíncrono completo com streaming SSE via SDK oficial
+- **`MockLLMClient`** — para testes determinísticos sem consumir tokens reais
+- **Circuit Breaker** — proteção contra cascata de falhas (CLOSED/OPEN/HALF_OPEN)
+- **Hierarquia de exceções** — `LLMAuthenticationError`, `LLMRateLimitError`, `LLMTimeoutError`, etc.
+- **`POST /api/v1/chat`** — endpoint não-streaming (retorna JSON completo)
+- **`POST /api/v1/chat/stream`** — endpoint SSE com eventos `meta`, `token`, `done`, `error`
+- **Script de benchmark** — `scripts/benchmark_groq.py` mede TTFT, TPS, latência
+- **CLI interativo** — `scripts/chat_cli.py` para conversar com a JOI no terminal
+- **+77 testes novos** (109 total, 86.47% cobertura)
+
+**Próxima parte (1.3):** LLM Router com fallback Ollama + circuit breaker integrado.
 
 ---
 
@@ -90,17 +103,54 @@ curl http://localhost:8000/api/v1/health
 
 # Readiness check (verifica deps)
 curl http://localhost:8000/api/v1/health/ready
+
+# Chat não-streaming (retorna JSON completo)
+curl -X POST http://localhost:8000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "Olá JOI!"}], "stream": false}'
 # {
-#   "status":"degraded",
-#   "version":"0.1.0",
-#   "uptime_seconds":45.123,
-#   "dependencies":[
-#     {"name":"groq","status":"degraded","detail":"GROQ_API_KEY not configured"},
-#     {"name":"ollama","status":"degraded","detail":"not running"},
-#     {"name":"redis","status":"degraded","detail":"not reachable: ConnectError"}
-#   ]
+#   "content": "...",
+#   "model": "llama-3.1-70b-versatile",
+#   "provider": "groq",
+#   "finish_reason": "stop",
+#   "prompt_tokens": 5,
+#   "completion_tokens": 12,
+#   "total_tokens": 17,
+#   "latency_ms": 845.2,
+#   "ttft_ms": 312.5,
+#   "request_id": "abc-123"
 # }
+
+# Chat streaming (SSE — eventos meta, token, done)
+curl -N -X POST http://localhost:8000/api/v1/chat/stream \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{"messages": [{"role": "user", "content": "Oi"}], "stream": true}'
+# event: meta
+# data: {"request_id":"...","model":"...","provider":"groq","timestamp":...}
+#
+# event: token
+# data: {"content":"Ol","timestamp":...}
+#
+# event: token
+# data: {"content":"á!","timestamp":...}
+#
+# event: done
+# data: {"finish_reason":"stop","prompt_tokens":2,"completion_tokens":3,...}
+
+# CLI interativo (precisa do servidor rodando)
+python scripts/chat_cli.py
+# > Olá JOI, quem é você?
+# JOI ▶ Olá! Eu sou a JOI, sua companheira digital...
+
+# CLI one-shot
+python scripts/chat_cli.py --message "Qual a capital do Brasil?"
+
+# Benchmark de latência (requer GROQ_API_KEY)
+python scripts/benchmark_groq.py --iterations 5
 ```
+
+**Nota:** Sem `GROQ_API_KEY` configurada, o servidor usa `MockLLMClient` automaticamente (respostas de echo). Isso permite desenvolvimento e testes sem custo de API.
 
 ---
 
@@ -225,8 +275,8 @@ Este README cobre apenas a **Parte 1.1 (Fundação)**. O roadmap completo está 
 | Parte | Título | Entregáveis | Status |
 |-------|--------|-------------|--------|
 | 1.1 | Fundação | Estrutura, config, FastAPI skeleton, /health, Docker | ✅ Concluído |
-| 1.2 | Spike Groq | Cliente Groq, streaming SSE, benchmark de latência | 🔜 Em breve |
-| 1.3 | LLM Router | Abstração LLMClient, fallback Ollama, circuit breaker | 🔜 |
+| 1.2 | Spike Groq | LLMClient abstract, GroqClient, MockLLMClient, Circuit Breaker, /chat endpoints, CLI, benchmark | ✅ Concluído |
+| 1.3 | LLM Router | Router com fallback Groq→Ollama, circuit breaker integrado, retry com backoff | 🔜 Em breve |
 | 1.4 | Memória v0 | Working memory (Redis), Episodic memory (ChromaDB) | 🔜 |
 | 1.5 | Persona v0 | System prompt estruturado em 4 camadas, CLI de conversa | 🔜 |
 

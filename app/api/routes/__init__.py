@@ -1,5 +1,5 @@
 """Projeto JOI - API routes package."""
 
-from app.api.routes import health
+from app.api.routes import chat, health
 
-__all__ = ["health"]
+__all__ = ["chat", "health"]
