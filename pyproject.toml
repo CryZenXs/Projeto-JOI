@@ -1,0 +1,239 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "projeto-joi"
+version = "0.1.0"
+description = "Projeto JOI - Entidade digital companheira inspirada em Blade Runner 2049"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Projeto JOI" },
+]
+keywords = ["ai", "llm", "groq", "fastapi", "assistant"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# ─── Production dependencies (pinned for reproducibility) ────────────────
+dependencies = [
+    # Web framework
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    # ASGI utilities
+    "sse-starlette==2.1.3",
+    "websockets==14.1",
+    # LLM orchestration
+    "langchain==0.3.14",
+    "langchain-core>=0.3.29,<0.4.0",
+    "langchain-groq==0.2.3",
+    "langchain-community==0.3.14",
+    # Groq SDK (direct client for low-level control)
+    "groq==0.13.1",
+    # Ollama (local LLM fallback)
+    "ollama==0.4.4",
+    # Validation & config
+    "pydantic==2.10.4",
+    "pydantic-settings==2.7.1",
+    # Vector store
+    "chromadb==0.5.23",
+    # Relational DB
+    "sqlalchemy[asyncio]==2.0.36",
+    "asyncpg==0.30.0",
+    "alembic==1.14.0",
+    # Cache & queue
+    "redis==5.2.1",
+    # HTTP client (pinned upper bound to satisfy ollama <0.28)
+    "httpx>=0.27.0,<0.28.0",
+    # Templating (for persona system prompt assembly)
+    "jinja2==3.1.5",
+    # YAML (for persona config files)
+    "pyyaml==6.0.2",
+    # Structured logging
+    "structlog==24.4.0",
+    # Async utilities
+    "anyio==4.7.0",
+    # Token counting (for budget tracking)
+    "tiktoken==0.8.0",
+]
+
+[project.optional-dependencies]
+# Development dependencies - install with: pip install -e ".[dev]"
+dev = [
+    # Testing
+    "pytest==8.3.4",
+    "pytest-asyncio==0.25.0",
+    "pytest-cov==6.0.0",
+    "pytest-mock==3.14.0",
+    # httpx is already in main deps (needed for TestClient)
+    # Linting & formatting
+    "ruff==0.8.4",
+    # Type checking
+    "mypy==1.14.0",
+    # Pre-commit hooks
+    "pre-commit==4.0.1",
+    # Interactive dev
+    "ipython==8.31.0",
+    # Debugging
+    "rich==13.9.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/projeto-joi"
+Documentation = "https://github.com/projeto-joi/docs"
+Repository = "https://github.com/projeto-joi"
+
+# ─── Setuptools config (for editable install) ────────────────────────────
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+exclude = ["tests*", "scripts*", "docs*"]
+
+# ─── Ruff: linting + formatting (replaces flake8 + black + isort) ────────
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "migrations",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort (import sorting)
+    "B",    # flake8-bugbear (likely bugs)
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "N",    # pep8-naming
+    "RUF",  # ruff-specific rules
+    "S",    # bandit (security)
+    "ASYNC",# flake8-async
+    "A",    # flake8-builtins
+    "C90",  # mccabe complexity
+    "ERA",  # eradicate (commented-out code)
+    "PL",   # pylint
+]
+ignore = [
+    "E501",     # line too long (handled by formatter)
+    "S101",     # use of assert (needed for tests)
+    "S104",     # binding to all interfaces (intentional in dev)
+    "B008",     # function call in defaults (FastAPI Depends)
+    "PLR0913",  # too many arguments (FastAPI handlers)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106", "PLR2004"]  # allow asserts, hardcoded creds in tests
+"app/main.py" = ["S104"]  # allow binding to 0.0.0.0 in main
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ─── Mypy: static type checking ──────────────────────────────────────────
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = false  # FastAPI decorators
+no_implicit_optional = true
+warn_no_return = true
+warn_unreachable = true
+show_error_codes = true
+show_column_numbers = true
+
+# Relax strictness for tests
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+# Third-party libs without type stubs
+[[tool.mypy.overrides]]
+module = [
+    "chromadb.*",
+    "ollama.*",
+    "tiktoken.*",
+]
+ignore_missing_imports = true
+
+# ─── Pytest ──────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--tb=short",
+    "--showlocals",
+    "--cov=app",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+    "--cov-report=xml",
+    "--cov-fail-under=80",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests (require external services)",
+    "persona_regression: marks persona regression suite tests",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:chromadb.*",
+    "ignore::DeprecationWarning:langchain.*",
+    "ignore::PendingDeprecationWarning",
+]
+
+# ─── Coverage ────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/migrations/*",
+    "*/__init__.py",
+    "app/main.py",  # entry point
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+    "\\.\\.\\.",  # ellipsis in protocol stubs
+]

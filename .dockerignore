@@ -1,0 +1,51 @@
+# Docker ignore file (similar to .gitignore but for Docker build context)
+# Prevents large/unnecessary files from being sent to the Docker daemon
+
+.git
+.gitignore
+.github
+.vscode
+.idea
+*.md
+!README.md
+
+# Python
+__pycache__
+*.py[cod]
+*.egg-info
+.venv
+venv
+env
+.mypy_cache
+.ruff_cache
+.pytest_cache
+htmlcov
+.coverage
+coverage.xml
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Data & logs
+data/
+logs/
+*.log
+*.sqlite
+*.db
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests (not needed in production image)
+tests/
+docs/
+scripts/

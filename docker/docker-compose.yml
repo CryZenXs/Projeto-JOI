@@ -1,0 +1,129 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Projeto JOI - Docker Compose (development environment)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Start all services:  docker compose -f docker/docker-compose.yml up -d
+# View logs:           docker compose -f docker/docker-compose.yml logs -f app
+# Stop:                docker compose -f docker/docker-compose.yml down
+# Reset (with data):   docker compose -f docker/docker-compose.yml down -v
+#
+# This file is for LOCAL DEVELOPMENT. For production, use docker-compose.prod.yml
+# (to be created) with hardened settings.
+# ═══════════════════════════════════════════════════════════════════════════
+
+services:
+  # ─── Application (FastAPI + Uvicorn) ───────────────────────────────────────
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: joi-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../.env
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql+asyncpg://joi:${POSTGRES_PASSWORD:-joi_dev_password}@postgres:5432/joi
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_HOST=http://ollama:11434
+    volumes:
+      # Mount source for hot-reload during development
+      - ../:/app
+      - ../data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - joi-network
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --log-level debug
+
+  # ─── PostgreSQL 16 ─────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: joi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: joi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-joi_dev_password}
+      POSTGRES_DB: joi
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U joi -d joi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - joi-network
+
+  # ─── Redis 7 ───────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: joi-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - joi-network
+
+  # ─── Ollama (local LLM fallback) ───────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: joi-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # Uncomment for GPU support (requires nvidia-container-toolkit)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - joi-network
+
+# ─── Networks ───────────────────────────────────────────────────────────────
+networks:
+  joi-network:
+    driver: bridge
+    name: joi-network
+
+# ─── Volumes (persistent data) ──────────────────────────────────────────────
+volumes:
+  postgres-data:
+    name: joi-postgres-data
+  redis-data:
+    name: joi-redis-data
+  ollama-data:
+    name: joi-ollama-data
