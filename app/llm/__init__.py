@@ -3,16 +3,8 @@
 This module defines the contracts that ALL LLM providers must implement.
 The architecture follows the "depend on abstractions, not concretions"
 principle from SOLID — the rest of the app (Persona Engine, Memory, API
-routes) depends on `LLMClient`, never on `GroqClient` or `OllamaClient`
-directly.
-
-This separation is critical for:
-1. **Fallback**: When Groq fails, the OllamaClient can transparently
-   take over without the caller knowing.
-2. **Testing**: Unit tests can inject a MockLLMClient that returns
-   deterministic responses.
-3. **Future providers**: Adding Anthropic, OpenAI, or a new local model
-   is a matter of implementing the interface, not refactoring callers.
+routes) depends on `LLMClient` or `LLMRouter`, never on `GroqClient`
+or `OllamaClient` directly.
 """
 
 from __future__ import annotations
@@ -28,10 +20,14 @@ from app.llm.base import (
 )
 from app.llm.errors import (
     LLMAuthenticationError,
+    LLMConnectionError,
     LLMError,
+    LLMProviderError,
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from app.llm.mock_client import MockLLMClient
+from app.llm.router import LLMRouter, RoutingDecision, RoutingMode
 
 __all__ = [
     # Core interface
@@ -46,6 +42,14 @@ __all__ = [
     # Exceptions
     "LLMError",
     "LLMAuthenticationError",
+    "LLMConnectionError",
+    "LLMProviderError",
     "LLMRateLimitError",
     "LLMTimeoutError",
+    # Mock client (for testing)
+    "MockLLMClient",
+    # Router
+    "LLMRouter",
+    "RoutingMode",
+    "RoutingDecision",
 ]

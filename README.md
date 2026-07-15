@@ -11,9 +11,9 @@
 
 ---
 
-## Status atual (Fase 1 — Parte 1.2: Spike Groq)
+## Status atual (Fase 1 — Parte 1.3: LLM Router)
 
-Esta é a **segunda parte** da Fase 1 do projeto. Implementado até aqui:
+Esta é a **terceira parte** da Fase 1 do projeto. Implementado até aqui:
 
 ### Parte 1.1 — Fundação ✅
 - Estrutura de monorepo com pacotes Python organizados
@@ -36,9 +36,17 @@ Esta é a **segunda parte** da Fase 1 do projeto. Implementado até aqui:
 - **`POST /api/v1/chat/stream`** — endpoint SSE com eventos `meta`, `token`, `done`, `error`
 - **Script de benchmark** — `scripts/benchmark_groq.py` mede TTFT, TPS, latência
 - **CLI interativo** — `scripts/chat_cli.py` para conversar com a JOI no terminal
-- **+77 testes novos** (109 total, 86.47% cobertura)
 
-**Próxima parte (1.3):** LLM Router com fallback Ollama + circuit breaker integrado.
+### Parte 1.3 — LLM Router com Fallback ✅
+- **`OllamaClient`** — cliente para LLM local (mesma interface LLMClient)
+- **`LLMRouter`** — orquestra Groq → Ollama fallback automaticamente
+- **Retry com backoff exponencial** — para erros transitórios (rate limit, timeout, connection)
+- **Circuit breaker por provedor** — cada provedor tem seu próprio breaker
+- **Modo_privacidade** — força Ollama para conversas sensíveis (`RoutingMode.PRIVACY`)
+- **`POST /api/v1/llm/status`** — observabilidade completa do router
+- **+32 testes novos** (141 total, 83.52% cobertura)
+
+**Próxima parte (1.4):** Sistema de Memória multi-camada (working + episodic + semantic).
 
 ---
 
@@ -301,8 +309,8 @@ Este README cobre apenas a **Parte 1.1 (Fundação)**. O roadmap completo está 
 |-------|--------|-------------|--------|
 | 1.1 | Fundação | Estrutura, config, FastAPI skeleton, /health, Docker | ✅ Concluído |
 | 1.2 | Spike Groq | LLMClient abstract, GroqClient, MockLLMClient, Circuit Breaker, /chat endpoints, CLI, benchmark | ✅ Concluído |
-| 1.3 | LLM Router | Router com fallback Groq→Ollama, circuit breaker integrado, retry com backoff | 🔜 Em breve |
-| 1.4 | Memória v0 | Working memory (Redis), Episodic memory (ChromaDB) | 🔜 |
+| 1.3 | LLM Router | OllamaClient, LLMRouter com fallback, retry exponencial, /llm/status, privacy mode | ✅ Concluído |
+| 1.4 | Memória v0 | Working memory (Redis), Episodic memory (ChromaDB) | 🔜 Em breve |
 | 1.5 | Persona v0 | System prompt estruturado em 4 camadas, CLI de conversa | 🔜 |
 
 ---

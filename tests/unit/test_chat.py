@@ -320,14 +320,21 @@ class TestChatErrorHandling:
     ) -> None:
         """When LLM raises LLMRateLimitError, should return 429."""
         from app.llm.errors import LLMRateLimitError
+        from app.llm.router import LLMRouter
+        from app.api.routes.chat import get_llm_router, reset_router
 
-        # Override the dependency to use a mock that raises rate limit
-        from app.api.routes.chat import get_llm_client
+        # Reset singleton to force re-creation
+        reset_router()
+
+        # Create a mock that raises rate limit (and has no fallback)
         failing_mock = MockLLMClient()
         failing_mock.queue_error(
             LLMRateLimitError(provider="mock", retry_after_seconds=30)
         )
-        app.dependency_overrides[get_llm_client] = lambda: failing_mock
+
+        # Build a router with the failing mock as primary, no fallback
+        test_router = LLMRouter(primary=failing_mock, fallback=None, max_retries=1)
+        app.dependency_overrides[get_llm_router] = lambda: test_router
 
         from httpx import ASGITransport, AsyncClient as TestClient
         transport = ASGITransport(app=app)
@@ -337,6 +344,7 @@ class TestChatErrorHandling:
         assert resp.status_code == 429
         assert "Retry-After" in resp.headers
         app.dependency_overrides.clear()
+        reset_router()
 
     @pytest.mark.asyncio
     async def test_timeout_returns_504(
@@ -346,11 +354,16 @@ class TestChatErrorHandling:
     ) -> None:
         """When LLM raises LLMTimeoutError, should return 504."""
         from app.llm.errors import LLMTimeoutError
-        from app.api.routes.chat import get_llm_client
+        from app.llm.router import LLMRouter
+        from app.api.routes.chat import get_llm_router, reset_router
+
+        reset_router()
 
         failing_mock = MockLLMClient()
         failing_mock.queue_error(LLMTimeoutError(provider="mock", timeout_seconds=30))
-        app.dependency_overrides[get_llm_client] = lambda: failing_mock
+
+        test_router = LLMRouter(primary=failing_mock, fallback=None, max_retries=1)
+        app.dependency_overrides[get_llm_router] = lambda: test_router
 
         from httpx import ASGITransport, AsyncClient as TestClient
         transport = ASGITransport(app=app)
@@ -359,3 +372,40 @@ class TestChatErrorHandling:
 
         assert resp.status_code == 504
         app.dependency_overrides.clear()
+        reset_router()
+
+    @pytest.mark.asyncio
+    async def test_all_providers_fail_returns_502(
+        self,
+        app: Any,
+        chat_payload: dict[str, Any],
+    ) -> None:
+        """When both primary and fallback fail, should return 502."""
+        from app.llm.errors import LLMProviderError
+        from app.llm.router import LLMRouter
+        from app.api.routes.chat import get_llm_router, reset_router
+
+        reset_router()
+
+        # Both primary and fallback fail
+        primary_mock = MockLLMClient()
+        primary_mock.queue_error(LLMProviderError("Primary down", provider="mock"))
+        fallback_mock = MockLLMClient()
+        fallback_mock.queue_error(LLMProviderError("Fallback down", provider="mock"))
+
+        test_router = LLMRouter(
+            primary=primary_mock,
+            fallback=fallback_mock,
+            max_retries=1,
+            retry_base_delay_seconds=0.01,
+        )
+        app.dependency_overrides[get_llm_router] = lambda: test_router
+
+        from httpx import ASGITransport, AsyncClient as TestClient
+        transport = ASGITransport(app=app)
+        async with TestClient(transport=transport, base_url="http://test") as ac:
+            resp = await ac.post("/api/v1/chat", json=chat_payload)
+
+        assert resp.status_code == 502
+        app.dependency_overrides.clear()
+        reset_router()

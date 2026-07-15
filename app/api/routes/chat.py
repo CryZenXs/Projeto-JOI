@@ -15,6 +15,9 @@ WebSockets because:
 2. SSE works over standard HTTP (no upgrade handshake)
 3. SSE has automatic reconnection built into browsers
 4. SSE is easier to proxy (CDNs, nginx, etc.)
+
+Both endpoints use the LLMRouter (Part 1.3), which automatically handles
+Groq → Ollama fallback with circuit breakers and retry logic.
 """
 
 from __future__ import annotations
@@ -39,6 +42,7 @@ from app.api.schemas import (
 )
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.retry import MaxRetriesExceeded
 from app.llm.base import LLMClient, LLMRequest
 from app.llm.errors import (
     LLMAuthenticationError,
@@ -46,30 +50,99 @@ from app.llm.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from app.llm.router import LLMRouter, RoutingMode
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = get_logger(__name__)
 
 
-# ─── Dependency injection ─────────────────────────────────────────────────
-# This function returns the LLMClient instance to use for this request.
-# For now, we use a simple factory. In Part 1.3, this will be replaced
-# by the LLMRouter that handles Groq→Ollama fallback automatically.
+# ─── Router singleton (lazy initialization) ───────────────────────────────
+# We create the LLMRouter once and reuse it across requests. This is
+# important because circuit breakers maintain state between calls —
+# if we created a new router per request, the breaker would never trip.
+
+_router_instance: LLMRouter | None = None
+
+
+def get_llm_router() -> LLMRouter | None:
+    """Get or create the singleton LLMRouter instance.
+
+    Returns None if no providers can be initialized (e.g., no Groq key
+    and Ollama not running). In that case, the chat endpoints will
+    return an error indicating LLM is not available.
+    """
+    global _router_instance
+    if _router_instance is not None:
+        return _router_instance
+
+    # Build primary client
+    primary: LLMClient
+    if settings.has_groq_key:
+        from app.llm.groq_client import GroqClient
+        try:
+            primary = GroqClient()
+            logger.info("chat.router.primary_configured", provider="groq")
+        except LLMError as exc:
+            logger.error("chat.router.primary_init_failed", error=str(exc))
+            primary = _get_mock_client()
+    else:
+        logger.warning("chat.router.no_groq_key", message="Using MockLLMClient as primary")
+        primary = _get_mock_client()
+
+    # Build fallback client (Ollama, if enabled)
+    fallback: LLMClient | None = None
+    if settings.feature_fallback_local and settings.ollama_enabled:
+        from app.llm.ollama_client import OllamaClient
+        try:
+            fallback = OllamaClient()
+            logger.info("chat.router.fallback_configured", provider="ollama")
+        except Exception as exc:
+            logger.warning("chat.router.fallback_init_failed", error=str(exc))
+
+    # If primary is mock and no fallback, we still create the router
+    # (mock works for development/testing)
+    _router_instance = LLMRouter(
+        primary=primary,
+        fallback=fallback,
+        max_retries=2,
+        retry_base_delay_seconds=1.0,
+    )
+
+    logger.info(
+        "chat.router.initialized",
+        primary=primary.provider_name,
+        fallback=fallback.provider_name if fallback else None,
+    )
+
+    return _router_instance
+
+
+def _get_mock_client() -> LLMClient:
+    """Create a MockLLMClient (used when no real provider is available)."""
+    from app.llm.mock_client import MockLLMClient
+    return MockLLMClient()
+
+
+def reset_router() -> None:
+    """Reset the router singleton (for testing)."""
+    global _router_instance
+    _router_instance = None
+
+
+# ─── Dependency for backward compatibility ────────────────────────────────
 
 
 def get_llm_client() -> LLMClient:
-    """Dependency: return the LLM client for this request.
+    """Legacy dependency: return a client (not router).
 
-    In Part 1.2 (now), this returns a MockLLMClient if no Groq key is
-    configured, or a GroqClient if one is. In Part 1.3, this will return
-    an LLMRouter that handles fallback automatically.
+    Kept for backward compatibility with tests. New code should use
+    get_llm_router() instead.
     """
-    if settings.has_groq_key:
-        from app.llm.groq_client import GroqClient
-        return GroqClient()
-    # No Groq key configured — use mock for development
-    from app.llm.mock_client import MockLLMClient
-    return MockLLMClient()
+    r = get_llm_router()
+    if r is None:
+        return _get_mock_client()
+    # Return the primary client directly (bypasses router logic)
+    return r._primary  # type: ignore[union-attr]
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────
@@ -82,17 +155,24 @@ def get_llm_client() -> LLMClient:
     summary="Generate a complete response (non-streaming)",
     description=(
         "Send a conversation and receive a complete response. "
+        "Automatically handles Groq → Ollama fallback if the primary provider fails. "
         "Use this for batch processing or when streaming isn't needed. "
         "For interactive chat UIs, prefer POST /chat/stream for lower perceived latency."
     ),
 )
 async def chat(
     request: ChatRequest,
-    client: LLMClient = Depends(get_llm_client),
+    llm_router: LLMRouter | None = Depends(get_llm_router),
 ) -> ChatResponse:
-    """Handle a non-streaming chat request."""
+    """Handle a non-streaming chat request via the LLMRouter."""
     request_id = str(uuid.uuid4())
     start = time.monotonic()
+
+    if llm_router is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM router is not configured. Set GROQ_API_KEY or start Ollama.",
+        )
 
     logger.info(
         "chat.request.received",
@@ -101,6 +181,9 @@ async def chat(
         messages_count=len(request.messages),
         user_id=request.user_id,
     )
+
+    # Determine routing mode (privacy mode could be triggered by user flag in future)
+    mode = RoutingMode.NORMAL
 
     # Convert to internal LLMRequest
     llm_request = LLMRequest(
@@ -113,7 +196,7 @@ async def chat(
     )
 
     try:
-        response = await client.complete(llm_request)
+        response = await llm_router.complete(llm_request, mode=mode)
     except LLMAuthenticationError as exc:
         logger.error("chat.request.auth_failed", request_id=request_id, error=str(exc))
         raise HTTPException(
@@ -132,6 +215,30 @@ async def chat(
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail=f"LLM provider timed out after {exc.timeout_seconds}s",
+        ) from exc
+    except MaxRetriesExceeded as exc:
+        # Router exhausted retries — check the underlying error for proper status
+        underlying = exc.last_exception
+        logger.warning(
+            "chat.request.max_retries",
+            request_id=request_id,
+            attempts=exc.attempts,
+            underlying_error=type(underlying).__name__,
+        )
+        if isinstance(underlying, LLMRateLimitError):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"LLM rate limit exceeded after {exc.attempts} retries. Retry after {underlying.retry_after_seconds}s",
+                headers={"Retry-After": str(int(underlying.retry_after_seconds or 60))},
+            ) from exc
+        if isinstance(underlying, LLMTimeoutError):
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail=f"LLM timed out after {exc.attempts} retries",
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"LLM unavailable after {exc.attempts} retries: {underlying}",
         ) from exc
     except LLMError as exc:
         logger.error("chat.request.llm_error", request_id=request_id, error=str(exc), exc_info=True)
@@ -170,18 +277,26 @@ async def chat(
     summary="Stream a response via Server-Sent Events",
     description=(
         "Send a conversation and receive a streaming response via SSE. "
+        "Automatically handles Groq → Ollama fallback if the primary provider fails "
+        "before streaming starts. "
         "Events: `meta` (start), `token` (each chunk), `done` (end), `error` (failure). "
         "Use this for interactive chat UIs to minimize perceived latency."
     ),
 )
 async def chat_stream(
     request: ChatRequest,
-    client: LLMClient = Depends(get_llm_client),
+    llm_router: LLMRouter | None = Depends(get_llm_router),
 ) -> EventSourceResponse:
-    """Handle a streaming chat request via SSE."""
+    """Handle a streaming chat request via SSE through the LLMRouter."""
     # Force stream=True for the internal request
     request.stream = True
     request_id = str(uuid.uuid4())
+
+    if llm_router is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM router is not configured. Set GROQ_API_KEY or start Ollama.",
+        )
 
     logger.info(
         "chat.stream.received",
@@ -203,8 +318,8 @@ async def chat_stream(
         # 1. Send meta event first
         meta = MetaEventData(
             request_id=request_id,
-            model=client.default_model or "unknown",
-            provider=client.provider_name,
+            model=llm_router._primary.default_model or "unknown",  # type: ignore[union-attr]
+            provider=llm_router._primary.provider_name,  # type: ignore[union-attr]
             timestamp=time.time(),
         )
         yield {
@@ -212,7 +327,7 @@ async def chat_stream(
             "data": meta.model_dump_json(),
         }
 
-        # 2. Stream tokens
+        # 2. Stream tokens via the router (handles fallback)
         llm_request = LLMRequest(
             messages=request.messages,
             stream=True,
@@ -223,7 +338,7 @@ async def chat_stream(
         )
 
         try:
-            async for chunk in client.stream(llm_request):
+            async for chunk in llm_router.stream(llm_request):  # type: ignore[union-attr]
                 chunk_count += 1
                 if ttft_ms is None:
                     ttft_ms = (time.monotonic() - start) * 1000
