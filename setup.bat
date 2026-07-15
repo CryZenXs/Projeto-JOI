@@ -1,10 +1,11 @@
 @echo off
-REM ═══════════════════════════════════════════════════════════════════════════
+REM ===========================================================================
 REM  Projeto JOI - Windows Setup Launcher (double-click this file)
-REM ═══════════════════════════════════════════════════════════════════════════
+REM  Pure ASCII version - works on all Windows systems
+REM ===========================================================================
 
-REM  This .bat file simply launches the PowerShell setup script with
-REM  the right execution policy. No need to manually bypass anything.
+REM  Force UTF-8 codepage to avoid garbled output from child processes
+chcp 65001 >nul 2>&1
 
 REM  Change to the directory of this script
 cd /d "%~dp0"

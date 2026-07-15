@@ -2,33 +2,13 @@
 .SYNOPSIS
     Projeto JOI - Automated Windows Setup Script
 .DESCRIPTION
-    This script automates the entire setup process for the Projeto JOI on Windows:
-    - Detects and optionally installs Python 3.12+, Git, Docker
-    - Creates a Python virtual environment
-    - Installs all project dependencies
-    - Collects API keys (Groq) via secure prompts
-    - Generates the .env configuration file
-    - Optionally pulls Ollama model for local fallback
-    - Runs the test suite to validate installation
-    - Optionally starts the development server
-
+    This script automates the entire setup process for the Projeto JOI on Windows.
+    Pure ASCII version - works on all PowerShell versions regardless of encoding.
 .NOTES
     File name: setup.ps1
     Author:    Projeto JOI
     Requires:  PowerShell 5.1+ (Windows 10/11 ships with this)
     Run as:    Regular user (do NOT run as Administrator unless asked)
-
-.EXAMPLE
-    # Standard execution (double-click setup.bat or right-click → Run with PowerShell)
-    .\setup.ps1
-
-.EXAMPLE
-    # Skip Docker and Ollama prompts (headless-friendly)
-    .\setup.ps1 -SkipDocker -SkipOllama
-
-.EXAMPLE
-    # Force a clean reinstall of the venv
-    .\setup.ps1 -CleanVenv
 #>
 
 [CmdletBinding()]
@@ -41,12 +21,12 @@ param(
     [switch]$Help
 )
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 # CONFIGURATION
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 
 $ErrorActionPreference = "Stop"
-$ProgressPreference = "SilentlyContinue"  # speed up Invoke-WebRequest
+$ProgressPreference = "SilentlyContinue"
 
 $ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = $ScriptPath
@@ -59,17 +39,15 @@ $VenvPip = Join-Path $VenvPath "Scripts\pip.exe"
 $EnvFile = Join-Path $ProjectRoot ".env"
 $EnvExample = Join-Path $ProjectRoot ".env.example"
 
-# Minimum versions
 $MinPythonVersion = [version]"3.12.0"
-$MinGitVersion = [version]"2.40.0"
 
-# ═══════════════════════════════════════════════════════════════════════════
-# HELPER FUNCTIONS
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
+# HELPER FUNCTIONS (ASCII-only output for max compatibility)
+# ===========================================================================
 
 function Write-Header {
     param([string]$Title)
-    $line = "═" * 70
+    $line = "=" * 70
     Write-Host ""
     Write-Host $line -ForegroundColor DarkYellow
     Write-Host "  $Title" -ForegroundColor Yellow
@@ -78,27 +56,27 @@ function Write-Header {
 
 function Write-Step {
     param([string]$Message)
-    Write-Host "  ▶ $Message" -ForegroundColor Cyan
+    Write-Host "  > $Message" -ForegroundColor Cyan
 }
 
 function Write-OK {
     param([string]$Message = "")
-    Write-Host "    ✔ $Message" -ForegroundColor Green
+    Write-Host "    [OK] $Message" -ForegroundColor Green
 }
 
 function Write-Warn {
     param([string]$Message)
-    Write-Host "    ⚠ $Message" -ForegroundColor Yellow
+    Write-Host "    [!] $Message" -ForegroundColor Yellow
 }
 
 function Write-Err {
     param([string]$Message)
-    Write-Host "    ✖ $Message" -ForegroundColor Red
+    Write-Host "    [X] $Message" -ForegroundColor Red
 }
 
 function Write-Info {
     param([string]$Message)
-    Write-Host "    ℹ $Message" -ForegroundColor DarkGray
+    Write-Host "    [i] $Message" -ForegroundColor DarkGray
 }
 
 function Test-Command {
@@ -169,20 +147,31 @@ function Invoke-SafeCommand {
     }
 }
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 # HELP
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 
 if ($Help) {
-    Get-Help $MyInvocation.MyCommand.Path -Detailed
+    Write-Host ""
+    Write-Host "Projeto JOI - Windows Setup Script" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Usage: .\setup.ps1 [options]"
+    Write-Host ""
+    Write-Host "Options:"
+    Write-Host "  -SkipDocker    Skip Docker installation prompt"
+    Write-Host "  -SkipOllama    Skip Ollama installation prompt"
+    Write-Host "  -SkipTests     Skip running the test suite"
+    Write-Host "  -CleanVenv     Remove existing venv before creating a new one"
+    Write-Host "  -Force         Skip confirmation prompts (use with caution)"
+    Write-Host "  -Help          Show this help message"
+    Write-Host ""
     exit 0
 }
 
-# ═══════════════════════════════════════════════════════════════════════════
-# EXECUTION POLICY (self-elevation if needed)
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
+# EXECUTION POLICY
+# ===========================================================================
 
-# Ensure we can run scripts — try to bypass for this session only
 try {
     $currentPolicy = Get-ExecutionPolicy -Scope CurrentUser
     if ($currentPolicy -eq "Restricted") {
@@ -200,19 +189,19 @@ try {
         }
     }
 } catch {
-    # Non-fatal — continue
+    # Non-fatal - continue
 }
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 # WELCOME BANNER
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 
 Write-Header "PROJETO JOI - WINDOWS SETUP"
 Write-Host ""
 Write-Host "  This script will set up the complete development environment." -ForegroundColor White
 Write-Host "  You will be asked for:" -ForegroundColor White
-Write-Host "    • Groq API key (required for LLM — get one free at https://console.groq.com)" -ForegroundColor White
-Write-Host "    • Optional: Docker, Ollama, custom ports" -ForegroundColor White
+Write-Host "    * Groq API key (required for LLM -- get one free at https://console.groq.com)" -ForegroundColor White
+Write-Host "    * Optional: Docker, Ollama, custom ports" -ForegroundColor White
 Write-Host ""
 Write-Host "  Press Ctrl+C at any time to abort." -ForegroundColor DarkGray
 Write-Host ""
@@ -222,13 +211,13 @@ if (-not $proceed) {
     exit 0
 }
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 # STEP 1: CHECK PREREQUISITES
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 
 Write-Header "Step 1/7: Checking Prerequisites"
 
-# ─── Python ───────────────────────────────────────────────────────────────
+# --- Python ---
 Write-Step "Checking Python..."
 $pythonExe = $null
 foreach ($cmd in @("python", "python3", "py")) {
@@ -260,7 +249,6 @@ if (-not $pythonExe) {
             Invoke-SafeCommand {
                 winget install Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
             } -ErrorMessage "Failed to install Python"
-            # Refresh PATH
             $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
             $pythonExe = "python"
             Write-OK "Python installed"
@@ -278,7 +266,7 @@ if (-not $pythonExe) {
     }
 }
 
-# ─── Git ──────────────────────────────────────────────────────────────────
+# --- Git ---
 Write-Step "Checking Git..."
 if (Test-Command "git") {
     $gitVersion = (& git --version) -replace "git version ", ""
@@ -304,7 +292,7 @@ if (Test-Command "git") {
     }
 }
 
-# ─── pip ──────────────────────────────────────────────────────────────────
+# --- pip ---
 Write-Step "Checking pip..."
 $hasPip = & $pythonExe -m pip --version 2>&1
 if ($LASTEXITCODE -ne 0) {
@@ -317,7 +305,8 @@ if ($LASTEXITCODE -ne 0) {
     Write-OK "pip available"
 }
 
-# ─── Docker (optional) ────────────────────────────────────────────────────
+# --- Docker (optional) ---
+$hasDocker = $false
 if (-not $SkipDocker) {
     Write-Step "Checking Docker (optional)..."
     if (Test-Command "docker") {
@@ -336,24 +325,18 @@ if (-not $SkipDocker) {
                 } -ErrorMessage "Failed to install Docker"
                 Write-OK "Docker Desktop installed"
                 Write-Warn "Please restart your computer before using Docker."
-                $hasDocker = $false  # not usable until restart
             } catch {
                 Write-Err $_
                 Write-Host "  You can install Docker Desktop manually later from:" -ForegroundColor Yellow
                 Write-Host "    https://docs.docker.com/desktop/install/windows-install/" -ForegroundColor White
-                $hasDocker = $false
             }
-        } else {
-            $hasDocker = $false
         }
     }
-} else {
-    $hasDocker = $false
 }
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 # STEP 2: CREATE VIRTUAL ENVIRONMENT
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 
 Write-Header "Step 2/7: Creating Virtual Environment"
 
@@ -379,22 +362,20 @@ if (-not (Test-Path $VenvPath)) {
     Write-OK "Virtual environment created"
 }
 
-# Verify venv python
 if (-not (Test-Path $VenvPython)) {
     Write-Err "Virtual environment Python not found at $VenvPython"
     exit 1
 }
 
-# Upgrade pip
 Write-Step "Upgrading pip..."
 Invoke-SafeCommand {
     & $VenvPython -m pip install --upgrade pip setuptools wheel --quiet
 } -ErrorMessage "Failed to upgrade pip"
 Write-OK "pip upgraded"
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 # STEP 3: INSTALL DEPENDENCIES
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 
 Write-Header "Step 3/7: Installing Dependencies"
 
@@ -402,7 +383,6 @@ Write-Step "Installing project (this may take 2-5 minutes)..."
 Write-Info "Installing in editable mode with dev dependencies..."
 try {
     & $VenvPip install -e ".[dev]" --quiet 2>&1 | ForEach-Object {
-        # Show only warnings/errors, not progress
         if ($_ -match "ERROR|WARN|Successfully installed") {
             Write-Host "    $_" -ForegroundColor DarkGray
         }
@@ -415,14 +395,13 @@ try {
     Write-Err "Failed to install dependencies: $_"
     Write-Host ""
     Write-Host "  This is often caused by:" -ForegroundColor Yellow
-    Write-Host "    1. Network issues — check your internet connection" -ForegroundColor White
-    Write-Host "    2. Build tools missing — install Visual Studio Build Tools:" -ForegroundColor White
+    Write-Host "    1. Network issues -- check your internet connection" -ForegroundColor White
+    Write-Host "    2. Build tools missing -- install Visual Studio Build Tools:" -ForegroundColor White
     Write-Host "       https://visualstudio.microsoft.com/visual-cpp-build-tools/" -ForegroundColor DarkGray
-    Write-Host "    3. Conflicting packages — try: .\setup.ps1 -CleanVenv" -ForegroundColor White
+    Write-Host "    3. Conflicting packages -- try: .\setup.ps1 -CleanVenv" -ForegroundColor White
     exit 1
 }
 
-# Install pre-commit hooks
 Write-Step "Installing pre-commit hooks..."
 if (Test-Path ".git") {
     try {
@@ -433,17 +412,17 @@ if (Test-Path ".git") {
         Write-Warn "Could not install pre-commit hooks: $_"
     }
 } else {
-    Write-Info "Not a git repo yet — skipping pre-commit install"
+    Write-Info "Not a git repo yet -- skipping pre-commit install"
 }
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 # STEP 4: COLLECT API KEYS AND CONFIGURATION
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 
 Write-Header "Step 4/7: Configuration"
 
-# If .env already exists, ask before overwriting
 $existingEnv = $null
+$skipEnvConfig = $false
 if (Test-Path $EnvFile) {
     Write-Info "Found existing .env file"
     $existingEnv = Get-Content $EnvFile -Raw
@@ -452,27 +431,30 @@ if (Test-Path $EnvFile) {
         Write-OK "Keeping existing .env configuration"
         $skipEnvConfig = $true
     } else {
-        # Backup
         $backupFile = "$EnvFile.backup.$(Get-Date -Format 'yyyyMMdd-HHmmss')"
         Copy-Item $EnvFile $backupFile
         Write-Info "Backed up to $(Split-Path -Leaf $backupFile)"
-        $skipEnvConfig = $false
     }
-} else {
-    $skipEnvConfig = $false
 }
+
+$groqKey = ""
+$ollamaHost = "http://localhost:11434"
+$ollamaInstalled = $false
+$port = 8000
+$envValue = "development"
+$env = $true
 
 if (-not $skipEnvConfig) {
     Write-Host ""
-    Write-Host "  ┌─────────────────────────────────────────────────────────────────┐" -ForegroundColor DarkYellow
-    Write-Host "  │  GROQ API KEY                                                   │" -ForegroundColor Yellow
-    Write-Host "  │                                                                 │" -ForegroundColor Yellow
-    Write-Host "  │  Required for the LLM. Get one FREE at:                         │" -ForegroundColor Yellow
-    Write-Host "  │     https://console.groq.com                                    │" -ForegroundColor White
-    Write-Host "  │                                                                 │" -ForegroundColor Yellow
-    Write-Host "  │  Sign in → API Keys → Create API Key                            │" -ForegroundColor Yellow
-    Write-Host "  │  Free tier: ~14,000 requests/day — plenty for development       │" -ForegroundColor Yellow
-    Write-Host "  └─────────────────────────────────────────────────────────────────┘" -ForegroundColor DarkYellow
+    Write-Host "  +-----------------------------------------------------------------+" -ForegroundColor DarkYellow
+    Write-Host "  |  GROQ API KEY                                                   |" -ForegroundColor Yellow
+    Write-Host "  |                                                                 |" -ForegroundColor Yellow
+    Write-Host "  |  Required for the LLM. Get one FREE at:                         |" -ForegroundColor Yellow
+    Write-Host "  |     https://console.groq.com                                    |" -ForegroundColor White
+    Write-Host "  |                                                                 |" -ForegroundColor Yellow
+    Write-Host "  |  Sign in -> API Keys -> Create API Key                          |" -ForegroundColor Yellow
+    Write-Host "  |  Free tier: ~14,000 requests/day -- plenty for development      |" -ForegroundColor Yellow
+    Write-Host "  +-----------------------------------------------------------------+" -ForegroundColor DarkYellow
     Write-Host ""
 
     $groqKey = Get-SecureInput -Prompt "Paste your Groq API key (starts with gsk_)" -Secret `
@@ -486,99 +468,91 @@ if (-not $skipEnvConfig) {
     } else {
         Write-OK "Groq API key captured"
     }
-}
 
-# ─── Optional: Ollama ─────────────────────────────────────────────────────
-if (-not $skipEnvConfig -and -not $SkipOllama) {
-    Write-Host ""
-    Write-Host "  ┌─────────────────────────────────────────────────────────────────┐" -ForegroundColor DarkYellow
-    Write-Host "  │  OLLAMA (Local LLM Fallback)                                    │" -ForegroundColor Yellow
-    Write-Host "  │                                                                 │" -ForegroundColor Yellow
-    Write-Host "  │  Optional but recommended. Runs a local model when:             │" -ForegroundColor Yellow
-    Write-Host "  │    • Groq API is unreachable                                    │" -ForegroundColor Yellow
-    Write-Host "  │    • Rate limits are hit                                        │" -ForegroundColor Yellow
-    Write-Host "  │    • You want privacy (no data leaves your machine)             │" -ForegroundColor Yellow
-    Write-Host "  │                                                                 │" -ForegroundColor Yellow
-    Write-Host "  │  Install: https://ollama.com/download/windows                   │" -ForegroundColor White
-    Write-Host "  └─────────────────────────────────────────────────────────────────┘" -ForegroundColor DarkYellow
-    Write-Host ""
+    # --- Ollama (optional) ---
+    if (-not $SkipOllama) {
+        Write-Host ""
+        Write-Host "  +-----------------------------------------------------------------+" -ForegroundColor DarkYellow
+        Write-Host "  |  OLLAMA (Local LLM Fallback)                                    |" -ForegroundColor Yellow
+        Write-Host "  |                                                                 |" -ForegroundColor Yellow
+        Write-Host "  |  Optional but recommended. Runs a local model when:             |" -ForegroundColor Yellow
+        Write-Host "  |    * Groq API is unreachable                                    |" -ForegroundColor Yellow
+        Write-Host "  |    * Rate limits are hit                                        |" -ForegroundColor Yellow
+        Write-Host "  |    * You want privacy (no data leaves your machine)             |" -ForegroundColor Yellow
+        Write-Host "  |                                                                 |" -ForegroundColor Yellow
+        Write-Host "  |  Install: https://ollama.com/download/windows                   |" -ForegroundColor White
+        Write-Host "  +-----------------------------------------------------------------+" -ForegroundColor DarkYellow
+        Write-Host ""
 
-    $ollamaInstalled = $false
-    if (Test-Command "ollama") {
-        Write-OK "Ollama already installed"
-        $ollamaInstalled = $true
-    } else {
-        $installOllama = Get-YesNo "Install Ollama via winget?" -Default $true
-        if ($installOllama) {
-            Write-Step "Installing Ollama..."
-            try {
-                Invoke-SafeCommand {
-                    winget install Ollama.Ollama --silent --accept-package-agreements --accept-source-agreements
-                } -ErrorMessage "Failed to install Ollama"
-                $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-                Write-OK "Ollama installed"
-                $ollamaInstalled = $true
-            } catch {
-                Write-Warn "Could not install Ollama automatically: $_"
-                Write-Host "  Install manually from: https://ollama.com/download/windows" -ForegroundColor Yellow
+        if (Test-Command "ollama") {
+            Write-OK "Ollama already installed"
+            $ollamaInstalled = $true
+        } else {
+            $installOllama = Get-YesNo "Install Ollama via winget?" -Default $true
+            if ($installOllama) {
+                Write-Step "Installing Ollama..."
+                try {
+                    Invoke-SafeCommand {
+                        winget install Ollama.Ollama --silent --accept-package-agreements --accept-source-agreements
+                    } -ErrorMessage "Failed to install Ollama"
+                    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+                    Write-OK "Ollama installed"
+                    $ollamaInstalled = $true
+                } catch {
+                    Write-Warn "Could not install Ollama automatically: $_"
+                    Write-Host "  Install manually from: https://ollama.com/download/windows" -ForegroundColor Yellow
+                }
             }
         }
-    }
 
-    if ($ollamaInstalled) {
-        Write-Step "Checking if Ollama service is running..."
-        $ollamaRunning = $false
-        try {
-            $response = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
-            if ($response.StatusCode -eq 200) {
-                Write-OK "Ollama service is running"
-                $ollamaRunning = $true
-            }
-        } catch {
-            Write-Warn "Ollama service not running. Attempting to start..."
+        if ($ollamaInstalled) {
+            Write-Step "Checking if Ollama service is running..."
+            $ollamaRunning = $false
             try {
-                Start-Process "ollama" -ArgumentList "serve" -WindowStyle Hidden
-                Start-Sleep -Seconds 3
                 $response = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
                 if ($response.StatusCode -eq 200) {
-                    Write-OK "Ollama service started"
+                    Write-OK "Ollama service is running"
                     $ollamaRunning = $true
                 }
             } catch {
-                Write-Warn "Could not start Ollama. You may need to run 'ollama serve' manually."
+                Write-Warn "Ollama service not running. Attempting to start..."
+                try {
+                    Start-Process "ollama" -ArgumentList "serve" -WindowStyle Hidden
+                    Start-Sleep -Seconds 3
+                    $response = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+                    if ($response.StatusCode -eq 200) {
+                        Write-OK "Ollama service started"
+                        $ollamaRunning = $true
+                    }
+                } catch {
+                    Write-Warn "Could not start Ollama. You may need to run 'ollama serve' manually."
+                }
             }
-        }
 
-        if ($ollamaRunning) {
-            Write-Step "Checking for llama3.1:8b model..."
-            $hasModel = $false
-            try {
-                $models = (Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing).Content | ConvertFrom-Json
-                $hasModel = $models.models.name -contains "llama3.1:8b"
-            } catch {}
+            if ($ollamaRunning) {
+                Write-Step "Checking for llama3.1:8b model..."
+                $hasModel = $false
+                try {
+                    $models = (Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing).Content | ConvertFrom-Json
+                    $hasModel = $models.models.name -contains "llama3.1:8b"
+                } catch {}
 
-            if ($hasModel) {
-                Write-OK "Model llama3.1:8b already present"
-            } else {
-                $pullModel = Get-YesNo "Pull llama3.1:8b model (4.7 GB download, runs in background)?" -Default $true
-                if ($pullModel) {
-                    Write-Step "Pulling model (this runs in a separate window)..."
-                    Start-Process "ollama" -ArgumentList "pull", "llama3.1:8b"
-                    Write-OK "Download started in separate window. You can continue while it downloads."
-                    Write-Info "The model will be available once the download completes."
+                if ($hasModel) {
+                    Write-OK "Model llama3.1:8b already present"
+                } else {
+                    $pullModel = Get-YesNo "Pull llama3.1:8b model (4.7 GB download, runs in background)?" -Default $true
+                    if ($pullModel) {
+                        Write-Step "Pulling model (this runs in a separate window)..."
+                        Start-Process "ollama" -ArgumentList "pull", "llama3.1:8b"
+                        Write-OK "Download started in separate window. You can continue while it downloads."
+                        Write-Info "The model will be available once the download completes."
+                    }
                 }
             }
         }
-        $ollamaHost = "http://localhost:11434"
-    } else {
-        $ollamaHost = "http://localhost:11434"
     }
-} else {
-    $ollamaHost = "http://localhost:11434"
-}
 
-# ─── Optional: Port configuration ────────────────────────────────────────
-if (-not $skipEnvConfig) {
+    # --- Port configuration ---
     Write-Host ""
     $customPort = Get-SecureInput -Prompt "Server port (default 8000)" -Default "8000" `
         -ValidatePattern "^\d{1,5}$" -ErrorMessage "Port must be a number"
@@ -588,9 +562,9 @@ if (-not $skipEnvConfig) {
     $envValue = if ($env) { "development" } else { "production" }
 }
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 # STEP 5: GENERATE .env FILE
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 
 Write-Header "Step 5/7: Generating .env Configuration"
 
@@ -601,26 +575,29 @@ if (-not $skipEnvConfig) {
     $rng.GetBytes($secretKeyBytes)
     $secretKey = [Convert]::ToBase64String($secretKeyBytes)
 
+    $debugValue = if ($env) { "true" } else { "false" }
+    $ollamaEnabledValue = if ($ollamaInstalled) { "true" } else { "false" }
+
     $envContent = @"
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 # Projeto JOI - Environment Configuration
 # Generated by setup.ps1 on $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 
-# ─── Application ────────────────────────────────────────────────────────────
+# --- Application ---
 APP_NAME="Projeto JOI"
 APP_VERSION="0.1.0"
 ENVIRONMENT=$envValue
-DEBUG=$($env -eq $true)
+DEBUG=$debugValue
 LOG_LEVEL=INFO
 HOST=127.0.0.1
 PORT=$port
 
-# ─── Security ───────────────────────────────────────────────────────────────
+# --- Security ---
 SECRET_KEY=$secretKey
 ALLOWED_ORIGINS_RAW=http://localhost:3000,http://localhost:$port,http://127.0.0.1:$port
 
-# ─── Groq API (PRIMARY LLM PROVIDER) ────────────────────────────────────────
+# --- Groq API (PRIMARY LLM PROVIDER) ---
 GROQ_API_KEY=$groqKey
 GROQ_MODEL_PRIMARY=llama-3.1-70b-versatile
 GROQ_MODEL_FALLBACK=llama-3.1-8b-instant
@@ -629,64 +606,64 @@ GROQ_TEMPERATURE=0.7
 GROQ_TIMEOUT_SECONDS=30.0
 GROQ_MAX_RETRIES=3
 
-# ─── Ollama (LOCAL FALLBACK LLM) ────────────────────────────────────────────
+# --- Ollama (LOCAL FALLBACK LLM) ---
 OLLAMA_HOST=$ollamaHost
 OLLAMA_MODEL=llama3.1:8b
 OLLAMA_TIMEOUT_SECONDS=60.0
-OLLAMA_ENABLED=$($ollamaInstalled -eq $true)
+OLLAMA_ENABLED=$ollamaEnabledValue
 
-# ─── PostgreSQL (optional, uses Docker) ─────────────────────────────────────
+# --- PostgreSQL (optional, uses Docker) ---
 DATABASE_URL=postgresql+asyncpg://joi:joi_dev_password@localhost:5432/joi
 DB_POOL_SIZE=10
 DB_MAX_OVERFLOW=20
 DB_ECHO=false
 
-# ─── Redis (optional, uses Docker) ──────────────────────────────────────────
+# --- Redis (optional, uses Docker) ---
 REDIS_URL=redis://localhost:6379/0
 REDIS_PASSWORD=
 REDIS_NAMESPACE=joi
 
-# ─── ChromaDB (vector store) ────────────────────────────────────────────────
+# --- ChromaDB (vector store) ---
 CHROMA_PERSIST_DIR=./data/chroma
 CHROMA_COLLECTION_EPISODES=episodic_memory
 CHROMA_COLLECTION_FACTS=semantic_facts
 CHROMA_EMBEDDING_MODEL=bge-m3
 
-# ─── Memory System ──────────────────────────────────────────────────────────
+# --- Memory System ---
 MEMORY_WORKING_TTL_SECONDS=1800
 MEMORY_MAX_CONTEXT_TURNS=12
 MEMORY_RETRIEVAL_TOP_K=5
 MEMORY_RERANK_ENABLED=true
 
-# ─── Persona ────────────────────────────────────────────────────────────────
+# --- Persona ---
 PERSONA_CONFIG_DIR=./config/persona
 PERSONA_REINJECTION_INTERVAL=8
 PERSONA_CONSISTENCY_CHECK_ENABLED=true
 
-# ─── Rate Limiting & Budget ─────────────────────────────────────────────────
+# --- Rate Limiting & Budget ---
 RATE_LIMIT_PER_MINUTE=60
 MONTHLY_BUDGET_USD=100.0
 BUDGET_ALERT_THRESHOLD=0.8
 
-# ─── Feature Flags ──────────────────────────────────────────────────────────
+# --- Feature Flags ---
 FEATURE_STREAMING=true
 FEATURE_MEMORY_PERSISTENCE=true
 FEATURE_PERSONA_CONSISTENCY_CHECK=true
 FEATURE_FALLBACK_LOCAL=true
 "@
 
-    $envContent | Out-File -FilePath $EnvFile -Encoding utf8 -NoNewline
+    $envContent | Out-File -FilePath $EnvFile -Encoding ascii -NoNewline
     Write-OK ".env file generated at $(Split-Path -Leaf $EnvFile)"
     if ($groqKey) {
         Write-OK "Groq API key configured"
     } else {
-        Write-Warn "No Groq key — server will use MockLLMClient"
+        Write-Warn "No Groq key -- server will use MockLLMClient"
     }
 }
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 # STEP 6: RUN TESTS
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 
 if (-not $SkipTests) {
     Write-Header "Step 6/7: Validating Installation (running tests)"
@@ -709,18 +686,18 @@ if (-not $SkipTests) {
     }
 }
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 # STEP 7: FINAL SUMMARY
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 
 Write-Header "Step 7/7: Setup Complete!"
 
 Write-Host ""
-Write-Host "  ┌─────────────────────────────────────────────────────────────────┐" -ForegroundColor Green
-Write-Host "  │                                                                 │" -ForegroundColor Green
-Write-Host "  │   ✅  PROJETO JOI is ready to run!                              │" -ForegroundColor Green
-Write-Host "  │                                                                 │" -ForegroundColor Green
-Write-Host "  └─────────────────────────────────────────────────────────────────┘" -ForegroundColor Green
+Write-Host "  +-----------------------------------------------------------------+" -ForegroundColor Green
+Write-Host "  |                                                                 |" -ForegroundColor Green
+Write-Host "  |   [OK]  PROJETO JOI is ready to run!                            |" -ForegroundColor Green
+Write-Host "  |                                                                 |" -ForegroundColor Green
+Write-Host "  +-----------------------------------------------------------------+" -ForegroundColor Green
 Write-Host ""
 
 Write-Host "  Quick commands (run from $ProjectRoot):" -ForegroundColor White
@@ -748,29 +725,29 @@ if ($hasDocker) {
 }
 
 if ($groqKey) {
-    Write-Host "  Groq API key: ✔ configured" -ForegroundColor Green
+    Write-Host "  Groq API key: [OK] configured" -ForegroundColor Green
 } else {
-    Write-Host "  Groq API key: ✖ not set (using mock client)" -ForegroundColor Yellow
+    Write-Host "  Groq API key: [X] not set (using mock client)" -ForegroundColor Yellow
     Write-Host "    Get one at: https://console.groq.com" -ForegroundColor DarkGray
 }
 
 if ($ollamaInstalled) {
-    Write-Host "  Ollama:       ✔ installed" -ForegroundColor Green
+    Write-Host "  Ollama:       [OK] installed" -ForegroundColor Green
 } else {
-    Write-Host "  Ollama:       ✖ not installed (optional)" -ForegroundColor Yellow
+    Write-Host "  Ollama:       [X] not installed (optional)" -ForegroundColor Yellow
 }
 
 if ($hasDocker) {
-    Write-Host "  Docker:       ✔ available" -ForegroundColor Green
+    Write-Host "  Docker:       [OK] available" -ForegroundColor Green
 } else {
-    Write-Host "  Docker:       ✖ not available (optional)" -ForegroundColor Yellow
+    Write-Host "  Docker:       [X] not available (optional)" -ForegroundColor Yellow
 }
 
 Write-Host ""
 Write-Host "  Documentation: https://github.com/CryZenXs/Projeto-JOI" -ForegroundColor DarkGray
 Write-Host ""
 
-# ─── Optional: start the server now ───────────────────────────────────────
+# --- Optional: start the server now ---
 $startNow = Get-YesNo "Start the development server now?" -Default $true
 if ($startNow) {
     Write-Host ""
