@@ -55,6 +55,7 @@ dmypy.json
 .env
 .env.local
 .env.*.local
+.env.backup.*
 *.env
 !.env.example
 secrets/
@@ -84,6 +85,15 @@ secrets/
 ehthumbs.db
 Thumbs.db
 desktop.ini
+
+# ─── Windows-specific ───────────────────────────────────────────────────────
+# PowerShell temp files
+*.tmp
+*.bak
+# Windows shortcuts (created by Explorer)
+*.lnk
+# Setup script log (if user redirects output)
+setup.log
 
 # ─── Docker ─────────────────────────────────────────────────────────────────
 docker-compose.override.yml

@@ -44,7 +44,32 @@ Esta é a **segunda parte** da Fase 1 do projeto. Implementado até aqui:
 
 ## Quick Start
 
-### Pré-requisitos
+### 🪟 Windows (automatizado — recomendado)
+
+1. **Clone o repositório:**
+   ```powershell
+   git clone https://github.com/CryZenXs/Projeto-JOI.git
+   cd Projeto-JOI
+   ```
+
+2. **Dê duplo-clique em `setup.bat`** — ou execute no PowerShell:
+   ```powershell
+   .\setup.ps1
+   ```
+
+3. **Siga as instruções na tela.** O script:
+   - Instala Python 3.12+, Git, Docker e Ollama automaticamente (via `winget`)
+   - Cria o ambiente virtual e instala todas as dependências
+   - Pede sua **Groq API key** (obtenha em https://console.groq.com — gratuito)
+   - Gera o arquivo `.env` com configuração segura
+   - Roda os testes para validar a instalação
+   - Pergunta se você quer iniciar o servidor
+
+📖 **Guia detalhado de Windows:** [`docs/SETUP_WINDOWS.md`](docs/SETUP_WINDOWS.md)
+
+### 🐧 Linux / macOS (manual)
+
+#### Pré-requisitos
 
 - **Python 3.12+** ([download](https://www.python.org/downloads/))
 - **pip** (vem com Python) ou **uv** ([instalação](https://docs.astral.sh/uv/))
@@ -52,11 +77,11 @@ Esta é a **segunda parte** da Fase 1 do projeto. Implementado até aqui:
 - **Groq API Key** ([obter gratuitamente](https://console.groq.com)) — opcional para a Parte 1.1, necessário a partir da 1.2
 - **Docker + Docker Compose** ([instalação](https://docs.docker.com/get-docker/)) — opcional, mas recomendado para Postgres/Redis/Ollama
 
-### Instalação (5 minutos)
+#### Instalação (5 minutos)
 
 ```bash
 # 1. Clone o repositório (ou descomprima o bundle)
-git clone <repo-url> projeto-joi
+git clone https://github.com/CryZenXs/Projeto-JOI.git projeto-joi
 cd projeto-joi
 
 # 2. Crie e ative um ambiente virtual
