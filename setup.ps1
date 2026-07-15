@@ -468,18 +468,54 @@ if ((Test-Path $VenvPath) -and $CleanVenv) {
 
 if (Test-Path $VenvPath) {
     Write-Info "Virtual environment already exists at $VenvName"
-    $recreate = Get-YesNo "Recreate it (will lose installed packages)?" -Default $false
-    if ($recreate) {
+
+    # Check if the existing venv uses a different Python version than the one we selected
+    $venvPythonVersion = $null
+    if (Test-Path $VenvPython) {
+        try {
+            $venvVersionOutput = & $VenvPython --version 2>&1
+            if ($venvVersionOutput -match "Python (\d+\.\d+\.\d+)") {
+                $venvPythonVersion = [version]$Matches[1]
+            }
+        } catch {}
+    }
+
+    $needRecreate = $false
+    if ($venvPythonVersion -and $pythonVersion) {
+        if ($venvPythonVersion.Major -ne $pythonVersion.Major -or
+            $venvPythonVersion.Minor -ne $pythonVersion.Minor) {
+            Write-Warn "Existing venv uses Python $venvPythonVersion but we selected Python $pythonVersion."
+            Write-Info "The venv MUST be recreated with the new Python version."
+            Write-Info "This is required -- installed packages are tied to a specific Python version."
+            $recreate = Get-YesNo "Recreate venv with Python $pythonVersion?" -Default $true
+            if ($recreate) {
+                $needRecreate = $true
+            } else {
+                Write-Err "Cannot continue: venv Python version mismatch."
+                Write-Host "  Either allow recreation, or delete .venv manually and re-run." -ForegroundColor Yellow
+                exit 1
+            }
+        }
+    }
+
+    if (-not $needRecreate) {
+        $recreate = Get-YesNo "Recreate it (will lose installed packages)?" -Default $false
+        if ($recreate) {
+            $needRecreate = $true
+        }
+    }
+
+    if ($needRecreate) {
         Remove-Item -Recurse -Force $VenvPath
     }
 }
 
 if (-not (Test-Path $VenvPath)) {
-    Write-Step "Creating venv at $VenvName..."
+    Write-Step "Creating venv at $VenvName with $pythonExe ($pythonVersion)..."
     Invoke-SafeCommand {
         Invoke-Python -m venv $VenvName
     } -ErrorMessage "Failed to create virtual environment"
-    Write-OK "Virtual environment created"
+    Write-OK "Virtual environment created with Python $pythonVersion"
 }
 
 if (-not (Test-Path $VenvPython)) {
@@ -502,23 +538,45 @@ Write-Header "Step 3/7: Installing Dependencies"
 Write-Step "Installing project (this may take 2-5 minutes)..."
 Write-Info "Installing in editable mode with dev dependencies..."
 Write-Info "Python version: $pythonVersion"
+Write-Info "Venv Python: $VenvPython"
 Write-Info "If this fails, the error details below will show which package is the problem."
 Write-Host ""
 
-$installOutput = & $VenvPip install -e ".[dev]" 2>&1
+# Capture pip output without letting stderr trigger NativeCommandError.
+# PowerShell's $ErrorActionPreference="Stop" treats any stderr output from
+# native commands as a terminating error. We temporarily relax it here.
+$previousEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+
+# Use cmd.exe to run pip so stderr is properly merged into stdout
+$installLog = Join-Path $env:TEMP "joi_pip_install.log"
+if (Test-Path $installLog) { Remove-Item $installLog -Force }
+
+$installArgs = "install -e `".[dev]`""
+$cmdLine = "`"$VenvPip`" $installArgs > `"$installLog`" 2>&1"
+cmd /c $cmdLine | Out-Null
 $installExitCode = $LASTEXITCODE
 
-# Show the last 30 lines of output (usually contains the error)
+# Restore error action preference
+$ErrorActionPreference = $previousEAP
+
+# Read the log file
+$installOutput = ""
+if (Test-Path $installLog) {
+    $installOutput = Get-Content $installLog -Raw
+}
+
 if ($installExitCode -ne 0) {
-    Write-Warn "pip install failed. Showing last 40 lines of output:"
+    Write-Warn "pip install failed (exit code: $installExitCode). Showing last 40 lines of output:"
     Write-Host ""
-    $lines = $installOutput -split "`n"
+    $lines = $installOutput -split "`r?`n"
     $startLine = [Math]::Max(0, $lines.Count - 40)
     for ($i = $startLine; $i -lt $lines.Count; $i++) {
-        Write-Host "    $($lines[$i])" -ForegroundColor DarkGray
+        if ($lines[$i].Trim()) {
+            Write-Host "    $($lines[$i])" -ForegroundColor DarkGray
+        }
     }
     Write-Host ""
-    Write-Err "Failed to install dependencies (exit code: $installExitCode)"
     Write-Host ""
     Write-Host "  Common causes and fixes:" -ForegroundColor Yellow
     Write-Host ""
@@ -535,14 +593,20 @@ if ($installExitCode -ne 0) {
     Write-Host "    4. Try a clean reinstall:" -ForegroundColor White
     Write-Host "       .\setup.ps1 -CleanVenv" -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "  Full pip log is shown above. Look for 'ERROR:' lines." -ForegroundColor Yellow
+    Write-Host "  Full pip log saved to: $installLog" -ForegroundColor Yellow
+    Write-Host "  Look for 'ERROR:' or 'error:' lines in the output above." -ForegroundColor Yellow
     exit 1
 } else {
     # Show success summary
-    $installOutput | Select-String "Successfully installed" | ForEach-Object {
-        Write-Host "    $_" -ForegroundColor DarkGray
+    if ($installOutput -match "Successfully installed (.+)") {
+        $packages = $Matches[1]
+        $count = ($packages -split " ").Count
+        Write-OK "Dependencies installed ($count packages)"
+    } else {
+        Write-OK "Dependencies installed"
     }
-    Write-OK "Dependencies installed"
+    # Clean up the log file on success
+    if (Test-Path $installLog) { Remove-Item $installLog -Force -ErrorAction SilentlyContinue }
 }
 
 Write-Step "Installing pre-commit hooks..."
