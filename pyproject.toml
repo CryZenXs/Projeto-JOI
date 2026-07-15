@@ -244,7 +244,10 @@ omit = [
     # These are tested via integration tests (run manually with -m integration)
     # and via the MockLLMClient which exercises the same base interface.
     "app/llm/groq_client.py",
-    "app/llm/ollama_client.py",  # not yet implemented (Part 1.3)
+    "app/llm/ollama_client.py",
+    # Memory backends that require external services (Redis) to test meaningfully.
+    # The SQLite and in-memory backends are fully tested.
+    "app/memory/working.py",  # RedisWorkingMemory class (lines 200+)
 ]
 
 [tool.coverage.report]

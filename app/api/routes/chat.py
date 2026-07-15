@@ -156,6 +156,7 @@ def get_llm_client() -> LLMClient:
     description=(
         "Send a conversation and receive a complete response. "
         "Automatically handles Groq → Ollama fallback if the primary provider fails. "
+        "Records conversation turns to memory and retrieves relevant context. "
         "Use this for batch processing or when streaming isn't needed. "
         "For interactive chat UIs, prefer POST /chat/stream for lower perceived latency."
     ),
@@ -185,9 +186,52 @@ async def chat(
     # Determine routing mode (privacy mode could be triggered by user flag in future)
     mode = RoutingMode.NORMAL
 
-    # Convert to internal LLMRequest
+    # Get memory manager (may be None if memory is unavailable)
+    memory_manager = None
+    user_id = request.user_id or "anonymous"
+    try:
+        from app.memory.manager import get_memory_manager
+        memory_manager = get_memory_manager()
+    except Exception as exc:
+        logger.warning("chat.memory_unavailable", error=str(exc))
+
+    # Record the user's message to working memory
+    if memory_manager and request.messages:
+        last_msg = request.messages[-1]
+        if last_msg.role.value == "user":
+            try:
+                await memory_manager.add_turn(
+                    user_id=user_id,
+                    role="user",
+                    content=last_msg.content,
+                )
+            except Exception as exc:
+                logger.warning("chat.memory.record_failed", error=str(exc))
+
+    # Retrieve any relevant facts to inject as context
+    memory_context: list[str] = []
+    if memory_manager:
+        try:
+            facts = await memory_manager.get_facts(user_id)
+            if facts:
+                # Build a brief context summary from known facts
+                facts_summary = "; ".join(f"{f.key}: {f.value}" for f in facts[:5])
+                memory_context.append(f"[Known facts about user: {facts_summary}]")
+        except Exception as exc:
+            logger.warning("chat.memory.facts_failed", error=str(exc))
+
+    # Convert to internal LLMRequest, optionally augmenting with memory context
+    messages = list(request.messages)
+    if memory_context:
+        # Insert memory context as a system message at the start
+        from app.llm.base import LLMMessage, LLMRole
+        messages.insert(0, LLMMessage(
+            role=LLMRole.SYSTEM,
+            content=" | ".join(memory_context),
+        ))
+
     llm_request = LLMRequest(
-        messages=request.messages,
+        messages=messages,
         stream=False,
         temperature=request.temperature,
         max_tokens=request.max_tokens,
@@ -257,6 +301,17 @@ async def chat(
         completion_tokens=response.usage.completion_tokens,
         provider=response.provider,
     )
+
+    # Record the assistant's response to working memory
+    if memory_manager:
+        try:
+            await memory_manager.add_turn(
+                user_id=user_id,
+                role="assistant",
+                content=response.content,
+            )
+        except Exception as exc:
+            logger.warning("chat.memory.record_response_failed", error=str(exc))
 
     return ChatResponse(
         content=response.content,
