@@ -220,49 +220,169 @@ Write-Header "Step 1/7: Checking Prerequisites"
 # --- Python ---
 Write-Step "Checking Python..."
 $pythonExe = $null
-foreach ($cmd in @("python", "python3", "py")) {
+$foundPythons = @()
+
+# Check py launcher first (most reliable on Windows for specific versions)
+if (Test-Command "py") {
+    try {
+        # Try py -3.12 first (best compatibility with our pinned deps)
+        $py312Output = & py -3.12 --version 2>&1
+        if ($py312Output -match "Python 3\.12\.(\d+)") {
+            $foundPythons += @{ cmd = "py -3.12"; version = [version]"3.12.$($Matches[1])"; preferred = $true }
+        }
+    } catch {}
+    try {
+        # Try py -3.13 (also good)
+        $py313Output = & py -3.13 --version 2>&1
+        if ($py313Output -match "Python 3\.13\.(\d+)") {
+            $foundPythons += @{ cmd = "py -3.13"; version = [version]"3.13.$($Matches[1])"; preferred = $true }
+        }
+    } catch {}
+}
+
+# Check python, python3 commands (less reliable - may be 3.11 or 3.14)
+foreach ($cmd in @("python", "python3")) {
     if (Test-Command $cmd) {
         try {
             $versionOutput = & $cmd --version 2>&1
             if ($versionOutput -match "Python (\d+\.\d+\.\d+)") {
                 $version = [version]$Matches[1]
-                if ($version -ge $MinPythonVersion) {
-                    $pythonExe = $cmd
-                    Write-OK "Found $cmd $version"
-                    break
-                } else {
-                    Write-Warn "$cmd $version is too old (need $MinPythonVersion or newer)"
-                }
+                $isPreferred = ($version.Major -eq 3 -and $version.Minor -in @(12, 13))
+                $foundPythons += @{ cmd = $cmd; version = $version; preferred = $isPreferred }
             }
-        } catch {
-            # Continue to next candidate
+        } catch {}
+    }
+}
+
+# Display what we found
+if ($foundPythons.Count -gt 0) {
+    Write-Host "    Found Python installations:" -ForegroundColor DarkGray
+    foreach ($p in $foundPythons) {
+        $tag = if ($p.preferred) { " (preferred)" } else { "" }
+        $color = if ($p.preferred) { "Green" } else { "DarkGray" }
+        Write-Host "      $($p.cmd) $($p.version)$tag" -ForegroundColor $color
+    }
+}
+
+# Pick the best candidate: prefer 3.12 or 3.13, avoid 3.14 (no wheels for some deps)
+$bestPython = $foundPythons | Where-Object { $_.preferred } | Select-Object -First 1
+if (-not $bestPython) {
+    # No preferred version found. Check if we have 3.14 (too new) or 3.11 (too old)
+    $py314 = $foundPythons | Where-Object { $_.version.Major -eq 3 -and $_.version.Minor -eq 14 } | Select-Object -First 1
+    $py311 = $foundPythons | Where-Object { $_.version.Major -eq 3 -and $_.version.Minor -le 11 } | Select-Object -First 1
+
+    if ($py314 -and -not $py311) {
+        Write-Warn "Found Python $($py314.version) but it is too new."
+        Write-Info "Python 3.14 was released recently and some of our dependencies"
+        Write-Info "do not yet have pre-built wheels for it. We need Python 3.12 or 3.13."
+        $install312 = Get-YesNo "Install Python 3.12 via winget (recommended)?" -Default $true
+        if ($install312) {
+            Write-Step "Installing Python 3.12..."
+            try {
+                Invoke-SafeCommand {
+                    winget install Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
+                } -ErrorMessage "Failed to install Python 3.12"
+                $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+                # Verify installation
+                try {
+                    $checkOutput = & py -3.12 --version 2>&1
+                    if ($checkOutput -match "Python 3\.12\.(\d+)") {
+                        $bestPython = @{ cmd = "py -3.12"; version = [version]"3.12.$($Matches[1])"; preferred = $true }
+                        Write-OK "Python 3.12 installed"
+                    } else {
+                        # Try 'python' command after install
+                        $checkOutput = & python --version 2>&1
+                        if ($checkOutput -match "Python 3\.12\.(\d+)") {
+                            $bestPython = @{ cmd = "python"; version = [version]"3.12.$($Matches[1])"; preferred = $true }
+                            Write-OK "Python 3.12 installed"
+                        }
+                    }
+                } catch {
+                    Write-Warn "Installed but could not verify. Please restart PowerShell and re-run."
+                    exit 0
+                }
+            } catch {
+                Write-Err $_
+                Write-Host ""
+                Write-Host "  Please install Python 3.12 manually from:" -ForegroundColor Yellow
+                Write-Host "    https://www.python.org/downloads/release/python-3120/" -ForegroundColor White
+                Write-Host "  Then re-run this script." -ForegroundColor DarkGray
+                exit 1
+            }
+        }
+    } elseif ($py311) {
+        Write-Warn "Found Python $($py311.version) but we need 3.12 or newer."
+        $install312 = Get-YesNo "Install Python 3.12 via winget?" -Default $true
+        if ($install312) {
+            Write-Step "Installing Python 3.12..."
+            try {
+                Invoke-SafeCommand {
+                    winget install Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
+                } -ErrorMessage "Failed to install Python 3.12"
+                $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+                try {
+                    $checkOutput = & py -3.12 --version 2>&1
+                    if ($checkOutput -match "Python 3\.12\.(\d+)") {
+                        $bestPython = @{ cmd = "py -3.12"; version = [version]"3.12.$($Matches[1])"; preferred = $true }
+                        Write-OK "Python 3.12 installed"
+                    }
+                } catch {}
+            } catch {
+                Write-Err $_
+                exit 1
+            }
         }
     }
 }
 
-if (-not $pythonExe) {
-    Write-Warn "Python $MinPythonVersion+ not found."
-    $installPython = Get-YesNo "Install Python 3.12 via winget?" -Default $true
-    if ($installPython) {
-        Write-Step "Installing Python 3.12..."
+if (-not $bestPython) {
+    Write-Warn "No suitable Python found. Installing Python 3.12..."
+    Write-Step "Installing Python 3.12 via winget..."
+    try {
+        Invoke-SafeCommand {
+            winget install Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
+        } -ErrorMessage "Failed to install Python"
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+        # Try to find the newly installed Python
         try {
-            Invoke-SafeCommand {
-                winget install Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
-            } -ErrorMessage "Failed to install Python"
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-            $pythonExe = "python"
-            Write-OK "Python installed"
+            $checkOutput = & py -3.12 --version 2>&1
+            if ($checkOutput -match "Python 3\.12\.(\d+)") {
+                $bestPython = @{ cmd = "py -3.12"; version = [version]"3.12.$($Matches[1])"; preferred = $true }
+                Write-OK "Python 3.12 installed"
+            }
         } catch {
-            Write-Err $_
-            Write-Host ""
-            Write-Host "  Please install Python 3.12+ manually from:" -ForegroundColor Yellow
-            Write-Host "    https://www.python.org/downloads/" -ForegroundColor White
-            Write-Host "  Then re-run this script." -ForegroundColor DarkGray
-            exit 1
+            $checkOutput = & python --version 2>&1
+            if ($checkOutput -match "Python 3\.12\.(\d+)") {
+                $bestPython = @{ cmd = "python"; version = [version]"3.12.$($Matches[1])"; preferred = $true }
+                Write-OK "Python 3.12 installed"
+            }
         }
-    } else {
-        Write-Host "  Setup aborted. Python is required." -ForegroundColor Yellow
+    } catch {
+        Write-Err $_
+        Write-Host "  Please install Python 3.12 manually from: https://www.python.org/downloads/" -ForegroundColor Yellow
         exit 1
+    }
+}
+
+if (-not $bestPython) {
+    Write-Err "Could not find or install a suitable Python. Need 3.12 or 3.13."
+    Write-Host "  Install manually from: https://www.python.org/downloads/release/python-3120/" -ForegroundColor Yellow
+    exit 1
+}
+
+$pythonExe = $bestPython.cmd
+$pythonVersion = $bestPython.version
+Write-OK "Using $pythonExe ($pythonVersion)"
+
+# Helper: invoke Python with arguments (handles "py -3.12" multi-token cmd)
+function Invoke-Python {
+    param([Parameter(ValueFromRemainingArguments=$true)][string[]]$PythonArgs)
+    if ($pythonExe -match " ") {
+        # Multi-token command like "py -3.12"
+        $cmdStr = "$pythonExe " + ($PythonArgs -join " ")
+        Invoke-Expression $cmdStr
+    } else {
+        & $pythonExe @PythonArgs
     }
 }
 
@@ -294,11 +414,11 @@ if (Test-Command "git") {
 
 # --- pip ---
 Write-Step "Checking pip..."
-$hasPip = & $pythonExe -m pip --version 2>&1
+$hasPip = Invoke-Python -m pip --version 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Warn "pip not available. Installing..."
     Invoke-SafeCommand {
-        & $pythonExe -m ensurepip --upgrade
+        Invoke-Python -m ensurepip --upgrade
     } -ErrorMessage "Failed to install pip"
     Write-OK "pip installed"
 } else {
@@ -357,7 +477,7 @@ if (Test-Path $VenvPath) {
 if (-not (Test-Path $VenvPath)) {
     Write-Step "Creating venv at $VenvName..."
     Invoke-SafeCommand {
-        & $pythonExe -m venv $VenvName
+        Invoke-Python -m venv $VenvName
     } -ErrorMessage "Failed to create virtual environment"
     Write-OK "Virtual environment created"
 }
@@ -381,25 +501,48 @@ Write-Header "Step 3/7: Installing Dependencies"
 
 Write-Step "Installing project (this may take 2-5 minutes)..."
 Write-Info "Installing in editable mode with dev dependencies..."
-try {
-    & $VenvPip install -e ".[dev]" --quiet 2>&1 | ForEach-Object {
-        if ($_ -match "ERROR|WARN|Successfully installed") {
-            Write-Host "    $_" -ForegroundColor DarkGray
-        }
+Write-Info "Python version: $pythonVersion"
+Write-Info "If this fails, the error details below will show which package is the problem."
+Write-Host ""
+
+$installOutput = & $VenvPip install -e ".[dev]" 2>&1
+$installExitCode = $LASTEXITCODE
+
+# Show the last 30 lines of output (usually contains the error)
+if ($installExitCode -ne 0) {
+    Write-Warn "pip install failed. Showing last 40 lines of output:"
+    Write-Host ""
+    $lines = $installOutput -split "`n"
+    $startLine = [Math]::Max(0, $lines.Count - 40)
+    for ($i = $startLine; $i -lt $lines.Count; $i++) {
+        Write-Host "    $($lines[$i])" -ForegroundColor DarkGray
     }
-    if ($LASTEXITCODE -ne 0) {
-        throw "pip install failed with exit code $LASTEXITCODE"
+    Write-Host ""
+    Write-Err "Failed to install dependencies (exit code: $installExitCode)"
+    Write-Host ""
+    Write-Host "  Common causes and fixes:" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "    1. Python 3.14 is too new -- some packages lack wheels for it." -ForegroundColor White
+    Write-Host "       Fix: Install Python 3.12 and re-run setup." -ForegroundColor DarkGray
+    Write-Host "       Download: https://www.python.org/downloads/release/python-3120/" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "    2. Visual Studio Build Tools missing (needed to compile C extensions)." -ForegroundColor White
+    Write-Host "       Install: https://visualstudio.microsoft.com/visual-cpp-build-tools/" -ForegroundColor DarkGray
+    Write-Host "       Select 'Desktop development with C++' workload." -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "    3. Network issues -- check your internet connection." -ForegroundColor White
+    Write-Host ""
+    Write-Host "    4. Try a clean reinstall:" -ForegroundColor White
+    Write-Host "       .\setup.ps1 -CleanVenv" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  Full pip log is shown above. Look for 'ERROR:' lines." -ForegroundColor Yellow
+    exit 1
+} else {
+    # Show success summary
+    $installOutput | Select-String "Successfully installed" | ForEach-Object {
+        Write-Host "    $_" -ForegroundColor DarkGray
     }
     Write-OK "Dependencies installed"
-} catch {
-    Write-Err "Failed to install dependencies: $_"
-    Write-Host ""
-    Write-Host "  This is often caused by:" -ForegroundColor Yellow
-    Write-Host "    1. Network issues -- check your internet connection" -ForegroundColor White
-    Write-Host "    2. Build tools missing -- install Visual Studio Build Tools:" -ForegroundColor White
-    Write-Host "       https://visualstudio.microsoft.com/visual-cpp-build-tools/" -ForegroundColor DarkGray
-    Write-Host "    3. Conflicting packages -- try: .\setup.ps1 -CleanVenv" -ForegroundColor White
-    exit 1
 }
 
 Write-Step "Installing pre-commit hooks..."
