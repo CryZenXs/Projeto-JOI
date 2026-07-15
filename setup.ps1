@@ -454,6 +454,57 @@ if (-not $SkipDocker) {
     }
 }
 
+# --- Visual Studio C++ Build Tools (optional, needed for chromadb/asyncpg) ---
+$hasBuildTools = $false
+Write-Step "Checking Visual Studio C++ Build Tools (optional)..."
+try {
+    $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vsWhere) {
+        $vsOutput = & $vsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property displayName 2>&1
+        if ($vsOutput -and $vsOutput.ToString().Trim()) {
+            Write-OK "Found: $vsOutput"
+            $hasBuildTools = $true
+        }
+    }
+} catch {}
+
+if (-not $hasBuildTools) {
+    # Also check via cl.exe (compiler)
+    if (Test-Command "cl") {
+        Write-OK "C++ compiler (cl.exe) found in PATH"
+        $hasBuildTools = $true
+    }
+}
+
+if (-not $hasBuildTools) {
+    Write-Warn "Visual Studio C++ Build Tools not found."
+    Write-Info "Build Tools are needed to compile: chromadb (vector store), asyncpg (Postgres)."
+    Write-Info "These are OPTIONAL -- the project works without them for now."
+    Write-Info "They will be needed in Part 1.4 (Memory) when we add ChromaDB."
+    Write-Host ""
+    $installBuildTools = Get-YesNo "Install Visual Studio Build Tools now (5 GB download)?" -Default $false
+    if ($installBuildTools) {
+        Write-Step "Installing Visual Studio Build Tools..."
+        Write-Info "This will open the VS Installer. Select 'Desktop development with C++'."
+        try {
+            Invoke-SafeCommand {
+                winget install Microsoft.VisualStudio.2022.BuildTools --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" --accept-package-agreements --accept-source-agreements
+            } -ErrorMessage "Failed to install Build Tools"
+            Write-OK "Build Tools installed"
+            Write-Warn "You may need to restart your computer."
+            $hasBuildTools = $true
+        } catch {
+            Write-Err $_
+            Write-Host "  Install manually from:" -ForegroundColor Yellow
+            Write-Host "    https://visualstudio.microsoft.com/visual-cpp-build-tools/" -ForegroundColor White
+            Write-Host "  Select: 'Desktop development with C++'" -ForegroundColor DarkGray
+        }
+    } else {
+        Write-Info "Skipping Build Tools. Will install core deps only (no chromadb/asyncpg)."
+        Write-Info "You can install them later with: .\.venv\Scripts\pip.exe install chromadb asyncpg"
+    }
+}
+
 # ===========================================================================
 # STEP 2: CREATE VIRTUAL ENVIRONMENT
 # ===========================================================================
@@ -539,28 +590,32 @@ Write-Step "Installing project (this may take 2-5 minutes)..."
 Write-Info "Installing in editable mode with dev dependencies..."
 Write-Info "Python version: $pythonVersion"
 Write-Info "Venv Python: $VenvPython"
-Write-Info "If this fails, the error details below will show which package is the problem."
+
+# Determine which extras to install based on Build Tools availability
+$extras = "dev"
+if ($hasBuildTools) {
+    $extras = "dev,all"
+    Write-Info "Build Tools detected -- installing all extras (chromadb, asyncpg)"
+} else {
+    Write-Info "No Build Tools -- installing core deps only (chromadb/asyncpg skipped)"
+    Write-Info "Memory features (Part 1.4) will need Build Tools later."
+}
 Write-Host ""
 
 # Capture pip output without letting stderr trigger NativeCommandError.
-# PowerShell's $ErrorActionPreference="Stop" treats any stderr output from
-# native commands as a terminating error. We temporarily relax it here.
 $previousEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
 
-# Use cmd.exe to run pip so stderr is properly merged into stdout
 $installLog = Join-Path $env:TEMP "joi_pip_install.log"
 if (Test-Path $installLog) { Remove-Item $installLog -Force }
 
-$installArgs = "install -e `".[dev]`""
+$installArgs = "install -e `".[$extras]`""
 $cmdLine = "`"$VenvPip`" $installArgs > `"$installLog`" 2>&1"
 cmd /c $cmdLine | Out-Null
 $installExitCode = $LASTEXITCODE
 
-# Restore error action preference
 $ErrorActionPreference = $previousEAP
 
-# Read the log file
 $installOutput = ""
 if (Test-Path $installLog) {
     $installOutput = Get-Content $installLog -Raw
@@ -597,7 +652,6 @@ if ($installExitCode -ne 0) {
     Write-Host "  Look for 'ERROR:' or 'error:' lines in the output above." -ForegroundColor Yellow
     exit 1
 } else {
-    # Show success summary
     if ($installOutput -match "Successfully installed (.+)") {
         $packages = $Matches[1]
         $count = ($packages -split " ").Count
@@ -605,7 +659,6 @@ if ($installExitCode -ne 0) {
     } else {
         Write-OK "Dependencies installed"
     }
-    # Clean up the log file on success
     if (Test-Path $installLog) { Remove-Item $installLog -Force -ErrorAction SilentlyContinue }
 }
 

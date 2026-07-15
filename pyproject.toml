@@ -26,6 +26,7 @@ classifiers = [
 ]
 
 # ─── Production dependencies (pinned for reproducibility) ────────────────
+# Core deps: pure Python wheels, install on any platform without build tools.
 dependencies = [
     # Web framework
     "fastapi==0.115.6",
@@ -45,11 +46,8 @@ dependencies = [
     # Validation & config
     "pydantic==2.10.4",
     "pydantic-settings==2.7.1",
-    # Vector store
-    "chromadb==0.5.23",
     # Relational DB
     "sqlalchemy[asyncio]==2.0.36",
-    "asyncpg==0.30.0",
     "alembic==1.14.0",
     # Cache & queue
     "redis==5.2.1",
@@ -68,6 +66,25 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Vector store (requires C++ build tools on Windows for chroma-hnswlib)
+# Install with: pip install -e ".[vector]"
+# Skip if you don't have VS Build Tools yet -- memory features come in Part 1.4
+vector = [
+    "chromadb==0.5.23",
+]
+
+# PostgreSQL async driver (requires pg_config / libpq-dev on Linux, or
+# pre-built wheel on Windows). Install with: pip install -e ".[postgres]"
+postgres = [
+    "asyncpg==0.30.0",
+]
+
+# All optional features at once
+all = [
+    "chromadb==0.5.23",
+    "asyncpg==0.30.0",
+]
+
 # Development dependencies - install with: pip install -e ".[dev]"
 dev = [
     # Testing
@@ -177,6 +194,7 @@ module = [
     "chromadb.*",
     "ollama.*",
     "tiktoken.*",
+    "asyncpg.*",
 ]
 ignore_missing_imports = true
 

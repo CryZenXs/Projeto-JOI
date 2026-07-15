@@ -80,6 +80,7 @@ class Settings(BaseSettings):
 
     # ─── PostgreSQL (relational DB) ───────────────────────────────────────
     # Format: postgresql+asyncpg://user:password@host:port/database
+    # Note: asyncpg is an optional dependency. Install with: pip install -e ".[postgres]"
     database_url: str = "postgresql+asyncpg://joi:joi@localhost:5432/joi"
     db_pool_size: int = 10
     db_max_overflow: int = 20
@@ -92,6 +93,8 @@ class Settings(BaseSettings):
     redis_namespace: str = "joi"
 
     # ─── ChromaDB (vector store) ──────────────────────────────────────────
+    # Note: chromadb is an optional dependency. Install with: pip install -e ".[vector]"
+    # Required only for Part 1.4 (Memory). Until then, these settings are unused.
     chroma_persist_dir: str = "./data/chroma"
     chroma_collection_episodes: str = "episodic_memory"
     chroma_collection_facts: str = "semantic_facts"
