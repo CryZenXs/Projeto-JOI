@@ -216,18 +216,38 @@ async def chat(
             if facts:
                 # Build a brief context summary from known facts
                 facts_summary = "; ".join(f"{f.key}: {f.value}" for f in facts[:5])
-                memory_context.append(f"[Known facts about user: {facts_summary}]")
+                memory_context.append(f"Fatos conhecidos: {facts_summary}")
+
+            # Also get recent emotional context
+            emotions = await memory_manager.get_emotional_context(user_id)
+            if emotions:
+                if isinstance(emotions, list) and len(emotions) > 0:
+                    emo_summary = ", ".join(
+                        f"{e.topic}({e.tone.value})" for e in emotions[:3]
+                    )
+                    memory_context.append(f"Contexto emocional: {emo_summary}")
         except Exception as exc:
             logger.warning("chat.memory.facts_failed", error=str(exc))
 
-    # Convert to internal LLMRequest, optionally augmenting with memory context
+    # Build persona system prompt
+    persona_prompt: str | None = None
+    try:
+        from app.persona.engine import get_persona_engine
+        persona_engine = get_persona_engine()
+        user_message = request.messages[-1].content if request.messages else ""
+        memory_ctx = " | ".join(memory_context) if memory_context else None
+        persona_prompt = persona_engine.process_turn(user_id, user_message, memory_ctx)
+    except Exception as exc:
+        logger.warning("chat.persona_failed", error=str(exc))
+
+    # Convert to internal LLMRequest, optionally augmenting with persona + memory
     messages = list(request.messages)
-    if memory_context:
-        # Insert memory context as a system message at the start
+    if persona_prompt:
+        # Insert persona system prompt at the start
         from app.llm.base import LLMMessage, LLMRole
         messages.insert(0, LLMMessage(
             role=LLMRole.SYSTEM,
-            content=" | ".join(memory_context),
+            content=persona_prompt,
         ))
 
     llm_request = LLMRequest(
